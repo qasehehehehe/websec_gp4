@@ -23,39 +23,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($result->num_rows > 0) {
         $user = $result->fetch_assoc();
-        if (password_verify($password, $user['password'])) {
-            // No role check here — get role from DB
+        
+        // Salted password verification
+        $salt = $user['salt'] ?? '';
+        $saltedInput = $password . $salt;
+
+        if (password_verify($saltedInput, $user['password'])) {
             $role = $user['role'];
 
             // Generate 6-digit verification code
             $verificationCode = sprintf("%06d", mt_rand(0, 999999));
-            
-            // Store user data and verification code in session
+
+            // Store session temp user info
             $_SESSION['temp_user_id'] = $user['id'];
             $_SESSION['temp_user_role'] = $role;
             $_SESSION['temp_user_email'] = $user['email'];
             $_SESSION['verification_code'] = $verificationCode;
             $_SESSION['code_expiry'] = time() + (10 * 60); // 10 minutes
-            
+
             if (EmailService\sendVerificationCode($user['email'], $verificationCode)) {
-                // Store verification attempt
+                // Store verification code in DB
                 $storeTwoFASql = "INSERT INTO verification_attempts (user_id, verification_code, expiry) VALUES (?, ?, ?)";
                 $twoFAStmt = $conn->prepare($storeTwoFASql);
                 $expiryTime = date('Y-m-d H:i:s', $_SESSION['code_expiry']);
                 $twoFAStmt->bind_param('iss', $user['id'], $verificationCode, $expiryTime);
-                
+
                 if ($twoFAStmt->execute()) {
-                    $message = "Verification code sent to " . substr($user['email'], 0, 3) . "***" . 
-                            substr($user['email'], strpos($user['email'], '@'));
+                    $message = "Verification code sent to " . substr($user['email'], 0, 3) . "***" .
+                        substr($user['email'], strpos($user['email'], '@'));
                     $messageType = "success";
                     $redirect = true;
 
-                    // Redirect based on role after 2FA
-                    if ($role === 'admin') {
-                        $redirectUrl = 'verify.php?redirect=admin_dashboard.php';
-                    } else {
-                        $redirectUrl = 'verify.php?redirect=user_dashboard.php';
-                    }
+                    $redirectUrl = ($role === 'admin') ? 'verify.php?redirect=admin_dashboard.php' : 'verify.php?redirect=user_dashboard.php';
                 } else {
                     $message = "Error storing verification. Please try again.";
                     $messageType = "error";
@@ -194,7 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <header>
         <div class="logo">
-<img src="img/logotest.jpg" alt="Logo" style="max-width: 80px; height: auto;">
+            <img src="img/logotest.jpg" alt="Logo" style="max-width: 80px; height: auto;">
             <h1>Railway Feedback & Lost and Found System </h1>
         </div>
     </header>
@@ -210,13 +209,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <form method="POST" action="">
                 <label for="username">Username</label>
                 <input type="text" id="username" name="username" placeholder="Username" required>
-                
+
                 <label for="password">Password</label>
                 <input type="password" id="password" name="password" placeholder="Password" required>
-                
+
                 <button type="submit">Login</button>
             </form>
-            
+
             <p>Don't have an account? <a href="register.php">SignUp</a></p>
             <a href="forgot_password.php" class="forgot">Forgot Password?</a>
         </div>
@@ -234,6 +233,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php endif; ?>
 </body>
 </html>
+
+<?php
+ob_end_flush();
+?>
+
 
 <?php
 ob_end_flush();
